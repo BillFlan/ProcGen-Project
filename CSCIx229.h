@@ -12,7 +12,7 @@
 #endif
 #define GL_GLEXT_PROTOTYPES
 #ifdef __APPLE__
-#include <GLUT/glut.h>
+//#include <GLUT/glut.h>
 #else
 #include <GL/glut.h>
 #endif
@@ -24,12 +24,12 @@
 extern "C" {
 #endif
 
-void Print(const char* format , ...);
+  //void Print(const char* format , ...);
 void Fatal(const char* format , ...);
-unsigned int LoadTexBMP(const char* file);
-void Project(double fov,double asp,double dim);
-void ErrCheck(const char* where);
-int  LoadOBJ(const char* file);
+  //unsigned int LoadTexBMP(const char* file);
+  //void Project(double fov,double asp,double dim);
+  //void ErrCheck(const char* where);
+  //int  LoadOBJ(const char* file);
 
 #ifdef __cplusplus
 }
