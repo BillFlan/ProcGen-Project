@@ -2,3 +2,5 @@
 .DS_Store
 glm/
 *.a
+stb_image.h
+/main

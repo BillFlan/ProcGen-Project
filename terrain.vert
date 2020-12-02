@@ -4,21 +4,23 @@
 
 layout(location = 0) in vec4 position;
 
-uniform mat4 MVP;
-uniform float u_xDiff;
-uniform float u_yDiff;
-uniform float scale;
-uniform int u_oct;
-uniform float u_lacunarity;
-uniform float u_persistence;
+uniform mat4 MVP; // Model view projection
+uniform mat4 MV; // Model view
+uniform float u_xDiff; //distance between x points
+uniform float u_yDiff; //distance between y points
+uniform float scale; // scale of the noise
+uniform int u_oct; // number of octaves
+uniform float u_lacunarity; // lacunarity
+uniform float u_persistence; // persistence
 
-uniform double u_Time;
+uniform double u_Time; // current program time
 uniform vec3 lightPosition;
 
-out vec4 newPos;
-out vec3 normalInterp;
-out vec3 col;
-out vec4 realPos;
+//out vec4 gl_Position; // Position after transformed by noise
+out vec3 normalInterp; // interpolated normals
+out vec3 col; // color
+out vec4 gridPos; // position inputed by grid mesh
+out vec4 Position; // position in view space without projection
 
 // Structure to define regions of the terrain
 struct Region{
@@ -64,20 +66,27 @@ float snoise(vec2 v){
   g.yz = a0.yz * x12.xz + h.yz * x12.yw;
   return 130.0 * dot(m, g);
 }
+// return random value
+float random(float x, float maximum){
+  return maximum*fract(sin(x)*100000.0);
+}
 
-float generateOctaves(vec2 pos, int octaves, float persistence, float lacunarity){
+float generateOctaves(vec2 pos, int octaves, float persistence, float lacunarity, float seed, vec2 offset){
   float amplitude = 1;
   float frequency = 1;
   float noiseHeight = 0;
   float maximum = 0;
+  //vec2 octaveOffsets[octaves];
+  seed = random(seed, 10000.0);
   for(int i = 0; i < octaves; i++){
-	pos = pos/scale * frequency;
+	pos = pos /scale * frequency + offset + vec2(seed);
 	float simplexValue = snoise(pos);
 	noiseHeight += simplexValue*amplitude;
 
 	maximum += amplitude;
 	amplitude *= persistence;
 	frequency *= lacunarity;
+	seed = random(seed, 1000.0);
   }
   return noiseHeight/maximum;
   //return noiseHeight;
@@ -86,27 +95,26 @@ float generateOctaves(vec2 pos, int octaves, float persistence, float lacunarity
 vec3 calcNormal(vec3 position){
   vec3 xOff = vec3(position.x + u_xDiff/2.0, 0, position.z);
   vec3 yOff = vec3(position.x, 0, position.z  + u_yDiff/2.0);
-  xOff.y = generateOctaves(xOff.xz, u_oct, u_persistence, u_lacunarity);
-  yOff.y = generateOctaves(yOff.xz, u_oct, u_persistence, u_lacunarity);
+  xOff.y = generateOctaves(xOff.xz, u_oct, u_persistence, u_lacunarity, 150,vec2(0,0) );
+  yOff.y = generateOctaves(yOff.xz, u_oct, u_persistence, u_lacunarity, 150,vec2(0,0) );
 
   vec3 xGrad = xOff - position;
   vec3 yGrad = yOff - position;
 
   vec3 norm = normalize(cross(xGrad, yGrad));
-  return norm;
+  return -norm;
 }
 
 
 void main(){
   //float max = 0.01;
   //float height = snoise(position.xy)*u_max;
-  float height = generateOctaves(position.xy, u_oct, u_persistence, u_lacunarity);
-  newPos = position.xzyw;
-  newPos.y = height;
-
+  float height = generateOctaves(position.xy, u_oct, u_persistence, u_lacunarity, 150,vec2(0,0) );
+  gridPos = position.xzyw;
+  gridPos.y = height;
   // only works if there are at least 2 colors
   //gl_Position = MVP * position.xzyw;
-  gl_Position = MVP * newPos;
-  realPos = gl_Position;
-  normalInterp = calcNormal(newPos.xyz);
+  gl_Position = MVP * gridPos;
+  Position = MV*gridPos;
+  normalInterp = calcNormal(gridPos.xyz);
 }

@@ -22,6 +22,7 @@ int height = 700;
 
 // Stuff for changing the view
 glm::vec3 cameraPosition = glm::vec3 (0.0f, 3.0f, 6.0f);
+glm::vec3 direction;
 float horizontalAngle = 3.14f;
 float verticalAngle = 0;
 float fieldOfView = 45.0f;
@@ -40,7 +41,7 @@ glm::vec3 lightPosition = glm::vec3(1.0,1.0,1.0);
 // get the view and projection based on current position, angles, and FOV
 glm::mat4 getProjectionViewMatrix(){
   // direction that the camera is looking at
-  glm::vec3 direction = glm::vec3 (cos(verticalAngle) * sin(horizontalAngle),
+  direction = glm::vec3 (cos(verticalAngle) * sin(horizontalAngle),
 						 sin(verticalAngle),
 						 cos(verticalAngle) * cos(horizontalAngle));
 
@@ -350,13 +351,6 @@ int init(GLFWwindow *&window){ // Gives you the window
 }
 
 
-// class Sphere(){
-//  public:
-//   float radius;
-//   int sectorcount, stackCount;
-//  private:
-//   unsigned int vao, vbo, ebo;
-// };
 Mesh sphere(float radius, int sectorCount, int stackCount){
 
 	float x, y, z, xy;                              // vertex position
@@ -385,25 +379,17 @@ Mesh sphere(float radius, int sectorCount, int stackCount){
 			x = xy * cosf(sectorAngle);             // r * cos(u) * cos(v)
 			y = xy * sinf(sectorAngle);             // r * cos(u) * sin(v)
 			vert.Position = glm::vec3(x,y,z);
-			// vertices.Position.push_back(x);
-			// vertices.Position.push_back(y);
-			// vertices.Position.push_back(z);
 
 			// normalized vertex normal (nx, ny, nz)
 			nx = x * lengthInv;
 			ny = y * lengthInv;
 			nz = z * lengthInv;
 			vert.Normal = glm::vec3(nx,ny,nz);
-			// normals.push_back(nx);
-			// normals.push_back(ny);
-			// normals.push_back(nz);
 
 			// vertex tex coord (s, t) range between [0, 1]
 			s = (float)j / sectorCount;
 			t = (float)i / stackCount;
 			vert.TexCoords = glm::vec2(s,t);
-			// texCoords.push_back(s);
-			// texCoords.push_back(t);
 			vertices.push_back(vert);
 		  }
 	  }
@@ -521,10 +507,13 @@ int main(void)
 	glm::mat4 Model = glm::mat4(1.0f);
 
 	glm::mat4 MVP = VP*Model;
+	glm::mat4 MV = getViewMatrix() * Model;
 	int prog = CreateShaderProg((char *)"terrain.vert", (char *)"terrain.frag");
 
 
 	int location = glGetUniformLocation(prog, "MVP");
+	int mvLoc = glGetUniformLocation(prog, "MV");
+	int eyeDirLoc = glGetUniformLocation(prog, "eyeDirection");
 	int octLoc = glGetUniformLocation(prog, "u_oct");
 
 	int u_xDiffLoc = glGetUniformLocation(prog, "u_xDiff");
@@ -540,6 +529,7 @@ int main(void)
 
 	int lightLoc = glGetUniformLocation(prog, "lightPosition");
 
+	// uniforms and shader for light sphere
 	int lightProg = CreateShaderProg((char *)"light.vert", (char *)"light.frag");
 	int location2 = glGetUniformLocation(lightProg, "MVP");
 	int lightLoc2 = glGetUniformLocation(lightProg, "lightPosition");
@@ -549,31 +539,38 @@ int main(void)
 	Region terrainRegions[MAX_REGIONS]; // Array of regions to pass
 	int rIndex = -1; // number of defined regions
 
-	// Deep Ocean
+	// Deep Ocean -inf -> -0.5
 	rIndex++;
 	terrainRegions[rIndex].id = rIndex;
 	terrainRegions[rIndex].Height = -0.5;
 	terrainRegions[rIndex].Color = glm::vec4(0.031, 0.258, 0.568, 1); // darker blue
 
-	// Ocean
+	// Ocean -0.5 -> 0
 	rIndex++;
 	terrainRegions[rIndex].id = rIndex;
 	terrainRegions[rIndex].Height = 0;
-	terrainRegions[rIndex].Color = glm::vec4(0.047, 0.333, 0.729, 1); // Blue
+	terrainRegions[rIndex].Color = glm::vec4(0.047, 0.333, 0.729, 0.8); // Blue
 
-	// Beach
+	// Beach 0 -> 0.075
 	rIndex++;
 	terrainRegions[rIndex].id = rIndex;
 	terrainRegions[rIndex].Height = 0.075;
 	terrainRegions[rIndex].Color = glm::vec4(0.858, 0.662, 0.482, 1.0); // Beach color
 
-	// Land
+	// Land 0.075 -> 0.6
+	rIndex++;
+	terrainRegions[rIndex].id = rIndex;
+	terrainRegions[rIndex].Height = 0.6;
+	terrainRegions[rIndex].Color = glm::vec4(0.282, 0.603, 0.156, 1.0f); // Green
+
+	// Mountain 0.6 -> 0.8
 	rIndex++;
 	terrainRegions[rIndex].id = rIndex;
 	terrainRegions[rIndex].Height = 0.8;
-	terrainRegions[rIndex].Color = glm::vec4(0.282, 0.603, 0.156, 1.0f); // Green
+	terrainRegions[rIndex].Color = glm::vec4(0.521, 0.533, 0.552, 1.0f); // Grey
 
-	// Snow Caps?
+
+	// Snow Caps? 0.8 -> 1
 	rIndex++;
 	terrainRegions[rIndex].id = rIndex;
 	terrainRegions[rIndex].Height = 1;
@@ -596,13 +593,14 @@ int main(void)
 	Mesh lightSphere = sphere(1.0f, 36, 18);
 	//GLLogCall();
 	/*Loop until the user closes the window*/
+	float lightOrbitRadius = 15.0;
 	while (!glfwWindowShouldClose(window))
 	{
 	  glUseProgram(prog);
 	  programTime = glfwGetTime(); //set time
 	  glUniform1d(timeLoc, programTime);
 
-	  lightPosition = glm::vec3(3*cos(programTime), 2.0, 3*sin(programTime));
+	  lightPosition = glm::vec3(lightOrbitRadius*cos(programTime), 10.0, lightOrbitRadius*sin(programTime));
 
 	  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	  GLClearError();
@@ -610,6 +608,7 @@ int main(void)
 	  VP = getProjectionViewMatrix(); // current view and projection
 	  MVP = VP*Model; // Combine with model matrix
 	  glUniformMatrix4fv(location, 1, GL_FALSE, &MVP[0][0]); // Send MVP to shaders
+	  glUniformMatrix4fv(mvLoc, 1, GL_FALSE, &MV[0][0]); // Send MV to shader
 	  glUniform1i(octLoc, octaves);
 	  glUniform1f(u_xDiffLoc, xDiff);
 	  glUniform1f(u_yDiffLoc, yDiff);
@@ -619,7 +618,7 @@ int main(void)
 	  glUniform1f(lacunarityLoc, lacunarity);
 	  glUniform3fv(lightLoc, 1, &lightPosition[0]);
 
-
+	  glUniform3fv(eyeDirLoc, 1, &direction[0]);
 	  glBindVertexArray(vao);
 	  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
 	  glDrawElements(GL_TRIANGLE_STRIP, ind, GL_UNSIGNED_INT,0); // Draw the plane

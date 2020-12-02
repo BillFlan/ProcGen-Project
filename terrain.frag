@@ -1,8 +1,9 @@
 #version 400 core
 #define MAX_REGIONS 10
 
-in vec4 newPos;
-in vec4 realPos;
+//in vec4 gl_Position;
+in vec4 gridPos;
+in vec4 Position;
 uniform float u_max;
 in vec3 col;
 
@@ -20,11 +21,13 @@ uniform float u_lacunarity;
 uniform float u_persistence;
 uniform float scale;
 uniform mat4 MVP;
+uniform mat4 MV;
 uniform double u_Time;
 uniform float u_xDiff;
 uniform float u_yDiff;
 uniform vec3 cameraPosition;
 uniform vec3 lightPosition;
+uniform vec3 eyeDirection;
 in vec4 gl_FragCoord ;
 
 
@@ -58,20 +61,27 @@ float snoise(vec2 v){
   g.yz = a0.yz * x12.xz + h.yz * x12.yw;
   return 130.0 * dot(m, g);
 }
+// return random value
+float random(float x, float maximum){
+  return maximum*fract(sin(x)*100000.0);
+}
 
-float generateOctaves(vec2 pos, int octaves, float persistence, float lacunarity){
+float generateOctaves(vec2 pos, int octaves, float persistence, float lacunarity, float seed, vec2 offset){
   float amplitude = 1;
   float frequency = 1;
   float noiseHeight = 0;
   float maximum = 0;
+  //vec2 octaveOffsets[octaves];
+  seed = random(seed, 10000.0);
   for(int i = 0; i < octaves; i++){
-	pos = pos/scale * frequency;
+	pos = pos /scale * frequency + offset + vec2(seed);
 	float simplexValue = snoise(pos);
 	noiseHeight += simplexValue*amplitude;
 
 	maximum += amplitude;
 	amplitude *= persistence;
 	frequency *= lacunarity;
+	seed = random(seed, 1000.0);
   }
   return noiseHeight/maximum;
   //return noiseHeight;
@@ -81,14 +91,16 @@ float generateOctaves(vec2 pos, int octaves, float persistence, float lacunarity
 vec3 calcNormal(vec3 position){
   vec3 xOff = vec3(position.x + u_xDiff/2.0, 0, position.z);
   vec3 yOff = vec3(position.x, 0, position.z  + u_yDiff/2.0);
-  xOff.y = generateOctaves(xOff.xz, u_oct, u_persistence, u_lacunarity);
-  yOff.y = generateOctaves(yOff.xz, u_oct, u_persistence, u_lacunarity);
+  int oct = min(3, u_oct);
+
+  xOff.y = generateOctaves(xOff.xz, oct, u_persistence, u_lacunarity, 150.0, vec2(0,0));
+  yOff.y = generateOctaves(yOff.xz, oct, u_persistence, u_lacunarity, 150.0, vec2(0,0));
 
   vec3 xGrad = xOff - position;
   vec3 yGrad = yOff - position;
 
   vec3 norm = normalize(cross(xGrad, yGrad));
-  return norm;
+  return -norm;
 }
 
 // uniform block of colors/regions
@@ -97,22 +109,32 @@ layout(std140) uniform colorBlock{
 };
 
 vec3 lightPos = lightPosition;
-const vec3 lightColor = vec3(1.0, 1.0, 1.0);
-const float lightPower = 40.0;
+vec3 lightColor = vec3(1.0, 1.0, 1.0);
+float lightBrightness = 2.0;
+float lightPower = 1.0;
 //const vec3 ambientColor = vec3(0.1, 0.0, 0.0);
 //const vec3 diffuseColor = vec3(0.5, 0.0, 0.0);
 const vec3 specColor = vec3(1.0, 1.0, 1.0);
-const float shininess = 30.0;
+const float shininess = 0.3;
+float Ambient = 0.5;
 
 //vec3 lightDirection = vec3(0,-5,0);
-out vec4 color;
+out vec4 FragColor;
 in vec3 normalInterp;
 
 Region currentRegion;
 
+// light attenuation factors
+float constAttenuation = 0.001;
+float linearAttenuation = 1;
+float quadAttenuation = 0;
+
+
+
 void main(){
-  //float height = (newPos.y + 1.0)/2.0;
-  float height = newPos.y;
+  //float height = (gridPos.y + 1.0)/2.0;
+  float height = gridPos.y;
+  vec4 color; //color of a region
   for(int i = 0; i < MAX_REGIONS; i++){
 	if(terrainRegions[i].id == -1) break; // don't want undefined
 	if(height <= terrainRegions[i].Height){
@@ -126,36 +148,44 @@ void main(){
 
   // color = vec4 (height, height, height, 1.0);
   // wikipedia blinn-phong code
-  //vec3 normal = calcNormal(newPos.xyz);
+  vec3 normal = calcNormal(gridPos.xyz);
 
 
-  vec3 normal = -normalInterp;
-  vec3 lightDir = lightPos - realPos.xyz;
-  float distance = length(lightDir);
-  distance = distance * distance;
-  lightDir = normalize(lightDir);
+  //vec3 normal = normalInterp;
+  lightColor *= lightBrightness;
+  vec3 lightDir = lightPos - vec3(Position);
+  float lightDistance = length(lightDir);
+  //lightDistance = lightDistance * lightDistance;
+  lightDir = lightDir/lightDistance;
 
-  float lambertian = max(dot(lightDir, normal), 0.0);
-  float specular = 0.0;
+  float attenuation = 1.0/(
+					constAttenuation +
+					linearAttenuation * lightDistance +
+					quadAttenuation * lightDistance * lightDistance
 
-  if (lambertian > 0.0) {
+						   );
 
-	vec3 viewDir = normalize(-realPos.xyz);
+  vec3 halfVector = normalize(lightDir + eyeDirection);
 
-	// this is blinn phong
-	vec3 halfDir = normalize(lightDir + viewDir);
-	float specAngle = max(dot(halfDir, normal), 0.0);
-	specular = pow(specAngle, shininess);
-  }
-  vec3 colorLinear = ambientColor +
-					 diffuseColor * lambertian * lightColor * lightPower / distance +
-					 specColor * specular * lightColor * lightPower / distance;
+  float diffuse = max(0.0, dot(normal, lightDir));
+  float specular = max(0.0, dot(normal, halfVector));
 
+
+  if (diffuse == 0.0) specular = 0.0;
+  else
+	specular = pow(specular, shininess) * lightPower;
+
+  vec3 scatteredLight = Ambient + lightColor * diffuse * attenuation;
+  vec3 reflectedLight = lightColor * specular * attenuation;
+  vec3 rgb = min(color.rgb * scatteredLight + reflectedLight,
+				 vec3(1.0)); FragColor = vec4(rgb, color.a);
+
+  FragColor = vec4(rgb, color.a);
  // color = vec4(min(colorLinear, 1);
-  color = vec4(colorLinear,1.0);
+  //color = vec4(colorLinear,1.0);
 
- if(currentRegion.id <= 1) color = currentRegion.Color;
+ if(currentRegion.id <= 1) FragColor = currentRegion.Color;
   //color = terrainRegions[int(mod(height*23,10))].Color;
   //color = (1.0,1.0,1)
-  //color = terrainRegions[int(mod(realPos.x*5,10))].Color;
+  //color = terrainRegions[int(mod(gridPos.x*5,10))].Color;
 }
