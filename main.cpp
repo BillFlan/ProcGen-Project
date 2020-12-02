@@ -7,6 +7,7 @@
 #include "CSCIx229.h"
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"
+#include "stb_image.h"
 #include "Mesh.h"
 #include <signal.h>
 #include <vector>
@@ -16,7 +17,7 @@
 #define ASSERT(x) if (!(x)) raise(SIGTRAP);
 #define PI 3.14159265
 
-int cols, rows;
+// window info
 int width = 1000;
 int height = 700;
 
@@ -27,16 +28,17 @@ float horizontalAngle = 3.14f;
 float verticalAngle = 0;
 float fieldOfView = 45.0f;
 
-float maxHeight = 0.0f;
-float scale = 3.5f;
+// Map generation variables
+float verticalScale = 2.2f; // tallest possible value
+float verticalShift = 0.2f; // shift up by this amount
+float scale = 3.5f; // scale of initial map
 int octaves = 4;
 float lacunarity = 3;
 float persistence = 0.6;
 
 double programTime; //current time
 
-glm::vec3 lightPosition = glm::vec3(1.0,1.0,1.0);
-
+glm::vec3 lightPosition = glm::vec3(1.0,1.0,1.0); // where the light at
 
 // get the view and projection based on current position, angles, and FOV
 glm::mat4 getProjectionViewMatrix(){
@@ -110,6 +112,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 					 cos(horizontalAngle - 3.14f/2.0f)
 							   );
 
+  // Rotate camera with arrow keys
   if (key == GLFW_KEY_LEFT && action >= 1){
 	horizontalAngle += 0.1;
   }
@@ -123,18 +126,21 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	verticalAngle += 0.1;
   }
 
+  // Move camera with WASD
   if (key == GLFW_KEY_W && action >= 1){
-	cameraPosition += 0.1f*direction;
+	cameraPosition += 0.2f*direction;
   }
   if (key == GLFW_KEY_S && action >= 1){
-	cameraPosition -= 0.1f*direction;
+	cameraPosition -= 0.2f*direction;
   }
   if (key == GLFW_KEY_A && action >= 1){
-	cameraPosition -= 0.1f*right;
+	cameraPosition -= 0.2f*right;
   }
   if (key == GLFW_KEY_D && action >= 1){
-	cameraPosition += 0.1f*right;
+	cameraPosition += 0.2f*right;
   }
+
+  // Q/E to adjust octaves
   if (key == GLFW_KEY_Q && action >= 1){
 	if(octaves > 1) octaves --;
 	printf("octaves: %d\n", octaves);
@@ -143,6 +149,8 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	octaves++;
 	printf("octaves: %d\n", octaves);
   }
+
+  // Brackets to adjust scale
   if (key == GLFW_KEY_LEFT_BRACKET && action >= 1){
 	scale -= 0.2f;
 	printf("scale: %f\n", scale);
@@ -151,6 +159,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	scale += 0.2f;
 	printf("scale: %f\n", scale);
   }
+
   // persistence with 1/2
   if (key == GLFW_KEY_1 && action >= 1){
 	if(persistence > 0.1) persistence -= 0.1;
@@ -160,17 +169,36 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	if(persistence < 1) persistence += 0.1;
 	printf("persistence: %f\n", persistence);
   }
+
   // lacunarity with 3/4
   if (key == GLFW_KEY_3 && action >= 1){
-	if(lacunarity > 0.5) lacunarity -= 0.5;
+	if(lacunarity > 0.1) lacunarity -= 0.1;
 	printf("lacunarity: %f\n", lacunarity);
   }
   if (key == GLFW_KEY_4 && action >= 1){
-	lacunarity += 0.5;
+	lacunarity += 0.1;
 	printf("lacunarity: %f\n", lacunarity);
   }
 
+  // vertical scale with 5/6
+  if (key == GLFW_KEY_6 && action >= 1){
+	if(verticalScale > 1.0) verticalScale -= 0.1;
+	printf("Vertical Scale: %f\n", verticalScale);
+  }
+  if (key == GLFW_KEY_5 && action >= 1){
+	verticalScale += 0.1;
+	printf("Vertical Scale: %f\n", verticalScale);
+  }
 
+	// vertical shift with 7/8
+  if (key == GLFW_KEY_7 && action >= 1){
+	verticalShift -= 0.1;
+	printf("Vertical Shift: %f\n", verticalShift);
+  }
+  if (key == GLFW_KEY_8 && action >= 1){
+	verticalShift += 0.1;
+	printf("Vertical Shift: %f\n", verticalShift);
+  }
 
 }
 
@@ -299,12 +327,40 @@ int CreateShaderProg(char* VertFile,char* FragFile)
    return prog;
 }
 
+
+// loads a texture and returns it's buffer
+GLuint LoadTexture(const char* filename, GLuint texture){
+  int x,y,n;
+
+  stbi_set_flip_vertically_on_load(1);
+  unsigned char* data = stbi_load(filename, &x, &y, &n, 4);
+
+  if(texture == 0){
+	glGenTextures(1, &texture);
+  }
+  glBindTexture(GL_TEXTURE_2D, texture);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,GL_REPEAT);
+
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, x, y, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+
+  glBindTexture(GL_TEXTURE_2D, 0);
+
+  if(data){ // delete the data
+	stbi_image_free(data);
+  }
+
+  return texture;
+
+}
 // Define regions of the terrain
 struct Region{
   int id = -1; // unique id for each region
-  float Height; // associated maximum height
-  float pad1;  // Needs to be n*sizeof(vec4)
-  float pad2;
+  float Height; // associated start height
+  float scale = 1.0; // texture scale
+  float pad2;  // Needs to be n*sizeof(vec4)
   glm::vec4 Color;
 
 };
@@ -437,7 +493,7 @@ int main(void)
 	if(init(window) == -1) return -1;
 
 	// Make our world grid
-	int sizePerSide = 128; // Number of subdivisions in grid
+	int sizePerSide = 64; // Number of subdivisions in grid
 	float minPos = -5.0f; // minimum location
 	float posRange = 10.0f; // length
 	int floatsPerVertex = 2;
@@ -509,7 +565,7 @@ int main(void)
 	glm::mat4 MVP = VP*Model;
 	glm::mat4 MV = getViewMatrix() * Model;
 	int prog = CreateShaderProg((char *)"terrain.vert", (char *)"terrain.frag");
-
+	glUseProgram(prog);
 
 	int location = glGetUniformLocation(prog, "MVP");
 	int mvLoc = glGetUniformLocation(prog, "MV");
@@ -519,6 +575,8 @@ int main(void)
 	int u_xDiffLoc = glGetUniformLocation(prog, "u_xDiff");
 	int u_yDiffLoc = glGetUniformLocation(prog, "u_yDiff");
 	int sLoc = glGetUniformLocation(prog, "scale");
+	int vScaleLoc = glGetUniformLocation(prog, "u_vScale");
+	int vShiftLoc = glGetUniformLocation(prog, "u_vShift");
 	//int colLoc = glGetUniformLocation(prog, "heightColors");
 
 	int persistenceLoc = glGetUniformLocation(prog, "u_persistence");
@@ -542,42 +600,65 @@ int main(void)
 	// Deep Ocean -inf -> -0.5
 	rIndex++;
 	terrainRegions[rIndex].id = rIndex;
-	terrainRegions[rIndex].Height = -0.5;
-	terrainRegions[rIndex].Color = glm::vec4(0.031, 0.258, 0.568, 1); // darker blue
+	terrainRegions[rIndex].Height = -10; //
+	terrainRegions[rIndex].Color = glm::vec4(0.047, 0.333, 0.729, 0.8); // Blue
 
 	// Ocean -0.5 -> 0
 	rIndex++;
 	terrainRegions[rIndex].id = rIndex;
-	terrainRegions[rIndex].Height = 0;
+	terrainRegions[rIndex].Height = -0.5;
 	terrainRegions[rIndex].Color = glm::vec4(0.047, 0.333, 0.729, 0.8); // Blue
 
 	// Beach 0 -> 0.075
 	rIndex++;
 	terrainRegions[rIndex].id = rIndex;
-	terrainRegions[rIndex].Height = 0.075;
+	terrainRegions[rIndex].Height = 0.0;
 	terrainRegions[rIndex].Color = glm::vec4(0.858, 0.662, 0.482, 1.0); // Beach color
 
-	// Land 0.075 -> 0.6
-	rIndex++;
-	terrainRegions[rIndex].id = rIndex;
-	terrainRegions[rIndex].Height = 0.6;
-	terrainRegions[rIndex].Color = glm::vec4(0.282, 0.603, 0.156, 1.0f); // Green
+	glActiveTexture(GL_TEXTURE0); // set sand texture to slot 0
+	GLuint sandTexture = LoadTexture((char*) "./textures/sand_512.jpg", 0); // sand texture
+	glBindTexture(GL_TEXTURE_2D, sandTexture);
 
-	// Mountain 0.6 -> 0.8
+
+
+	// Land 0.075 -> 0.5
 	rIndex++;
 	terrainRegions[rIndex].id = rIndex;
-	terrainRegions[rIndex].Height = 0.8;
+	terrainRegions[rIndex].Height = 0.075;
+	terrainRegions[rIndex].Color = glm::vec4(0.282, 0.603, 0.156, 1.0f); // Green
+	terrainRegions[rIndex].scale = 0.25;
+
+	glActiveTexture(GL_TEXTURE1); // grass on 1
+	GLuint grassTexture = LoadTexture((char*) "./textures/grass_512.jpg", 0); // grass texture
+	glBindTexture(GL_TEXTURE_2D, grassTexture);
+
+	// Mountain 0.5 -> 0.75
+	rIndex++;
+	terrainRegions[rIndex].id = rIndex;
+	terrainRegions[rIndex].Height = 0.5;
 	terrainRegions[rIndex].Color = glm::vec4(0.521, 0.533, 0.552, 1.0f); // Grey
 
+	glActiveTexture(GL_TEXTURE2); // rock on 2
+	GLuint rockTexture = LoadTexture((char *) "./textures/rock_512.jpg", 0);
+	glBindTexture(GL_TEXTURE_2D, rockTexture);
 
-	// Snow Caps? 0.8 -> 1
+	// Snow Caps 0.75 -> inf
 	rIndex++;
 	terrainRegions[rIndex].id = rIndex;
-	terrainRegions[rIndex].Height = 1;
+	terrainRegions[rIndex].Height = 0.75;
 	terrainRegions[rIndex].Color = glm::vec4(1, 1,1, 1.0f); // White
 
+	glActiveTexture(GL_TEXTURE3); //snow on 3
+	GLuint snowTexture = LoadTexture((char *) "./textures/snow_512.jpg", 0);
+	glBindTexture(GL_TEXTURE_2D, snowTexture);
 
+	//	glBindTexture(GL_TEXTURE_2D, 0);
 
+	glUniform1i(glGetUniformLocation(prog, "sandTexture"), 0); // set it in shader
+	glUniform1i(glGetUniformLocation(prog, "grassTexture"), 1); // set it in shader
+	glUniform1i(glGetUniformLocation(prog, "rockTexture"), 2); // set it in shader
+	glUniform1i(glGetUniformLocation(prog, "snowTexture"), 3); // set it in shader
+	GLLogCall();
 	unsigned int ubo; //uniform buffer object
 	glGenBuffers(1, &ubo);
 	glBindBuffer(GL_UNIFORM_BUFFER, ubo);
@@ -594,29 +675,43 @@ int main(void)
 	//GLLogCall();
 	/*Loop until the user closes the window*/
 	float lightOrbitRadius = 15.0;
+	double lastTime = 0;
+	programTime = glfwGetTime();
+	double deltaTime = 0;
+	double lightAngle = PI;
 	while (!glfwWindowShouldClose(window))
 	{
 	  glUseProgram(prog);
 	  programTime = glfwGetTime(); //set time
+	  deltaTime = (programTime - lastTime);
+	  lastTime = programTime;
+
 	  glUniform1d(timeLoc, programTime);
 
-	  lightPosition = glm::vec3(lightOrbitRadius*cos(programTime), 10.0, lightOrbitRadius*sin(programTime));
+	  if(lightPosition.y < 0) lightAngle += deltaTime;
+	  else lightAngle += deltaTime/10;
+
+		lightPosition = glm::vec3(lightOrbitRadius*cos(lightAngle), lightOrbitRadius*sin(lightAngle), 6.0);
 
 	  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	  GLClearError();
+	  //GLClearError();
 
 	  VP = getProjectionViewMatrix(); // current view and projection
 	  MVP = VP*Model; // Combine with model matrix
 	  glUniformMatrix4fv(location, 1, GL_FALSE, &MVP[0][0]); // Send MVP to shaders
 	  glUniformMatrix4fv(mvLoc, 1, GL_FALSE, &MV[0][0]); // Send MV to shader
+
+	  // Send terrain variables
 	  glUniform1i(octLoc, octaves);
 	  glUniform1f(u_xDiffLoc, xDiff);
 	  glUniform1f(u_yDiffLoc, yDiff);
 	  glUniform1f(sLoc, scale);
-
 	  glUniform1f(persistenceLoc, persistence);
 	  glUniform1f(lacunarityLoc, lacunarity);
 	  glUniform3fv(lightLoc, 1, &lightPosition[0]);
+	  glUniform1f(vScaleLoc, verticalScale);
+	  glUniform1f(vShiftLoc, verticalShift);
+
 
 	  glUniform3fv(eyeDirLoc, 1, &direction[0]);
 	  glBindVertexArray(vao);
@@ -630,7 +725,7 @@ int main(void)
 
 
 
-	  ASSERT(GLLogCall()); // Check errors
+	  GLLogCall(); // Check errors
 
 	  /* Swap front and back buffers */
 	  glfwSwapBuffers(window);

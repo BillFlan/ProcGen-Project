@@ -1,3 +1,8 @@
+src = $(wildcard *.c) \
+	$(wildcard *.cpp)
+obj = $(src:.c=.o) \
+	$(src:.cpp=.o)
+
 # project
 EXE=main
 
@@ -24,7 +29,7 @@ CLEAN=rm -f $(EXE) *.o *.a
 endif
 
 # Dependencies
-main.o: main.cpp Mesh.h CSCIx229.h
+main.o: main.cpp Mesh.h CSCIx229.h stb_image.h
 fatal.o: fatal.c CSCIx229.h
 loadtexbmp.o: loadtexbmp.c CSCIx229.h
 print.o: print.c CSCIx229.h
@@ -32,6 +37,7 @@ project.o: project.c CSCIx229.h
 errcheck.o: errcheck.c CSCIx229.h
 object.o: object.c CSCIx229.h
 Mesh.o: Mesh.cpp Mesh.h
+stb_image.o: stb_image.h
 
 #  Create archive
 CSCIx229.a:fatal.o
@@ -45,7 +51,7 @@ CSCIx229.a:fatal.o
 	g++ -c $(CFLG) -std=c++11 $<
 
 #  Link
-main:main.o CSCIx229.a Mesh.o
+main:main.o CSCIx229.a Mesh.o stb_image.o
 	gcc -O3 -o $@ $^   $(LIBS)
 
 #  Clean

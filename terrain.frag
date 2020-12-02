@@ -11,9 +11,14 @@ in vec3 col;
 struct Region{
   int id; // unique id for each region
   float Height; // associated maximum height
-  float pad1;  // to make it n*sizeof(vec4)
-  float pad2;
+  float scale;  // texture scale
+  float pad2; // to make it n*sizeof(vec4)
   vec4 Color;
+};
+
+// uniform block of colors/regions
+layout(std140) uniform colorBlock{
+  Region terrainRegions[MAX_REGIONS];
 };
 
 uniform int u_oct;
@@ -28,6 +33,16 @@ uniform float u_yDiff;
 uniform vec3 cameraPosition;
 uniform vec3 lightPosition;
 uniform vec3 eyeDirection;
+
+uniform float u_vScale; // Value for normalizing
+uniform float u_vShift; // Vertical shift
+
+// textures
+uniform sampler2D sandTexture;
+uniform sampler2D grassTexture;
+uniform sampler2D rockTexture;
+uniform sampler2D snowTexture;
+
 in vec4 gl_FragCoord ;
 
 
@@ -66,25 +81,28 @@ float random(float x, float maximum){
   return maximum*fract(sin(x)*100000.0);
 }
 
+// Make octavs of noise
 float generateOctaves(vec2 pos, int octaves, float persistence, float lacunarity, float seed, vec2 offset){
   float amplitude = 1;
   float frequency = 1;
   float noiseHeight = 0;
   float maximum = 0;
-  //vec2 octaveOffsets[octaves];
+
   seed = random(seed, 10000.0);
+
+  float minValue = terrainRegions[0].Height - 0.1;
   for(int i = 0; i < octaves; i++){
 	pos = pos /scale * frequency + offset + vec2(seed);
 	float simplexValue = snoise(pos);
 	noiseHeight += simplexValue*amplitude;
-
+	noiseHeight = noiseHeight;
 	maximum += amplitude;
 	amplitude *= persistence;
 	frequency *= lacunarity;
 	seed = random(seed, 1000.0);
+
   }
-  return noiseHeight/maximum;
-  //return noiseHeight;
+  return (noiseHeight)/u_vScale + u_vShift;
 }
 
 //calculate the normal of each vertex
@@ -103,19 +121,30 @@ vec3 calcNormal(vec3 position){
   return -norm;
 }
 
-// uniform block of colors/regions
-layout(std140) uniform colorBlock{
-  Region terrainRegions[MAX_REGIONS];
-};
+//calculate the normal of each vertex
+vec3 calcWaterNormal(vec3 position){
+  vec3 xOff = vec3(position.x + 0.025, 0, position.z);
+  vec3 yOff = vec3(position.x, 0, position.z  + 0.025);
+  // int oct = min(3, u_oct);
+
+  // xOff.y = generateOctaves(xOff.xz, oct, u_persistence, u_lacunarity, 150.0, vec2(0,0));
+  // yOff.y = generateOctaves(yOff.xz, oct, u_persistence, u_lacunarity, 150.0, vec2(0,0));
+  xOff.y = abs(snoise(xOff.xz));
+  yOff.y = abs(snoise(yOff.xz));
+  vec3 xGrad = xOff - position;
+  vec3 yGrad = yOff - position;
+
+  vec3 norm = normalize(cross(xGrad, yGrad));
+  return -norm;
+}
+
 
 vec3 lightPos = lightPosition;
-vec3 lightColor = vec3(1.0, 1.0, 1.0);
+vec3 lightColor = vec3(0.945, 0.870, 0.352);
 float lightBrightness = 2.0;
 float lightPower = 1.0;
-//const vec3 ambientColor = vec3(0.1, 0.0, 0.0);
-//const vec3 diffuseColor = vec3(0.5, 0.0, 0.0);
 const vec3 specColor = vec3(1.0, 1.0, 1.0);
-const float shininess = 0.3;
+float shininess = 0.3;
 float Ambient = 0.5;
 
 //vec3 lightDirection = vec3(0,-5,0);
@@ -129,33 +158,54 @@ float constAttenuation = 0.001;
 float linearAttenuation = 1;
 float quadAttenuation = 0;
 
+vec4 getTexture(int id, vec2 Pos){
+  vec4 color;
+  switch (id){
+  case 2:
+	color = texture(sandTexture, Pos/terrainRegions[2].scale);
+	break;
+  case 3:
+	color = texture(grassTexture, Pos/terrainRegions[3].scale);
+	break;
+  case 4:
+	color = texture(rockTexture, Pos/terrainRegions[4].scale);
+	break;
+  case 5:
+	color = texture(snowTexture, Pos/terrainRegions[5].scale);
+	break;
+  default:
+	color = terrainRegions[id].Color;
+	break;
+  }
+  return color;
+}
 
-
+Region getRegion(float height, int start){
+  Region reg = terrainRegions[0];
+  for(int i = 0; i < MAX_REGIONS; i++){
+	if(terrainRegions[i].id == -1) break; // don't want undefined
+	if(height >= terrainRegions[i].Height){
+	  reg = terrainRegions[i];
+	}
+  }
+  return reg;
+}
 void main(){
   //float height = (gridPos.y + 1.0)/2.0;
   float height = gridPos.y;
   vec4 color; //color of a region
-  for(int i = 0; i < MAX_REGIONS; i++){
-	if(terrainRegions[i].id == -1) break; // don't want undefined
-	if(height <= terrainRegions[i].Height){
-	  color = terrainRegions[i].Color;
-	  currentRegion = terrainRegions[i];
-	  break;
-	}
-  }
-  vec3 ambientColor = vec3(color)/1.5;
-  vec3 diffuseColor = vec3(color);
 
-  // color = vec4 (height, height, height, 1.0);
-  // wikipedia blinn-phong code
+  float variation = 0.025;
+  height = height + random(random(height, variation+gridPos.z),variation); //Add random variation to edges
+  currentRegion = getRegion(height, 0);
+  color = getTexture(currentRegion.id, gridPos.xz); // get texture for a given id
+
+
   vec3 normal = calcNormal(gridPos.xyz);
 
-
-  //vec3 normal = normalInterp;
   lightColor *= lightBrightness;
   vec3 lightDir = lightPos - vec3(Position);
   float lightDistance = length(lightDir);
-  //lightDistance = lightDistance * lightDistance;
   lightDir = lightDir/lightDistance;
 
   float attenuation = 1.0/(
@@ -177,15 +227,31 @@ void main(){
 
   vec3 scatteredLight = Ambient + lightColor * diffuse * attenuation;
   vec3 reflectedLight = lightColor * specular * attenuation;
-  vec3 rgb = min(color.rgb * scatteredLight + reflectedLight,
-				 vec3(1.0)); FragColor = vec4(rgb, color.a);
+  vec3 rgb = min(color.rgb * scatteredLight + reflectedLight, vec3(1.0));
 
   FragColor = vec4(rgb, color.a);
- // color = vec4(min(colorLinear, 1);
-  //color = vec4(colorLinear,1.0);
 
- if(currentRegion.id <= 1) FragColor = currentRegion.Color;
-  //color = terrainRegions[int(mod(height*23,10))].Color;
-  //color = (1.0,1.0,1)
-  //color = terrainRegions[int(mod(gridPos.x*5,10))].Color;
+  // Do special calculations for waves
+  if(currentRegion.id <= 1){
+	vec3 normalWater = calcWaterNormal(vec3(gridPos.x, abs(snoise(5*gridPos.xz + float(u_Time)/5)), gridPos.z));
+	shininess = 10;
+	lightPower = 5;
+	lightColor /= lightBrightness;
+	//linearAttenuation = 0;
+	//quadAttenuation = 1;
+
+	float waterdiffuse = max(0.0, dot(normalWater, lightDir));
+	float waterspecular = max(0.0, dot(normalWater, halfVector));
+
+
+	if (waterdiffuse == 0.0) waterspecular = 0.0;
+	else
+	  waterspecular = pow(waterspecular, shininess) * lightPower;
+
+	vec3 waterscatteredLight = Ambient + lightColor * waterdiffuse * attenuation;
+	vec3 waterreflectedLight = lightColor * waterspecular * attenuation;
+	vec3 waterrgb = min(color.rgb * waterscatteredLight + waterreflectedLight, vec3(1.0));
+
+	FragColor += vec4(waterrgb, 0.9);
+  }
 }
