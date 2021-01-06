@@ -1,5 +1,11 @@
 # Procudural Terrain Generation Project
 ### Written by Asher Farr for CSCI 4229 Intro to Computer Graphics
+
+## Screenshots
+![Some mountains floating in space](https://github.com/BillFlan/ProcGen-Project/blob/master/screenshots/sc1.png?raw=true)
+![A closer look at the water and land](https://github.com/BillFlan/ProcGen-Project/blob/master/screenshots/sc2.png?raw=true)
+![Another landscape in space](https://github.com/BillFlan/ProcGen-Project/blob/master/screenshots/sc3.png?raw=true)
+![An ocean with sparce islands](https://github.com/BillFlan/ProcGen-Project/blob/master/screenshots/sc4.png?raw=true)
 ## Controls:
 - WASD to fly around
 - Arrow keys to move camera
