@@ -5,7 +5,9 @@
 #include "Mesh.h"
 #include <GLFW/glfw3.h>
 
-
+// This would probably be a useful class if I used it for more than the sun.
+// I thought I would be implementing more objects, so I thought this would help. Maybe someday it will
+// Based on the class by LearnOpenGL
 Mesh::Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices, std::vector<Texture> textures){
   this->vertices = vertices;
   this->indices = indices;

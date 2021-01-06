@@ -1,6 +1,7 @@
 // #ifdef __APPLE__
 #define GLFW_INCLUDE_GLCOREARB
 #define GLFW_INCLUDE_GLEXT
+#define GL_GLEXT_PROTOTYPES
 // #endif
 
 #include <GLFW/glfw3.h>
@@ -13,8 +14,6 @@
 #include <vector>
 #include <iostream>
 
-
-#define ASSERT(x) if (!(x)) raise(SIGTRAP);
 #define PI 3.14159265
 
 // window info
@@ -35,10 +34,14 @@ float scale = 3.5f; // scale of initial map
 int octaves = 4;
 float lacunarity = 3;
 float persistence = 0.6;
+float seed = 150.0;
+glm::vec2 gridoffset = glm::vec2(0.0f,0.0f);
+int animateOffset = 0;
 
 double programTime; //current time
 
 glm::vec3 lightPosition = glm::vec3(1.0,1.0,1.0); // where the light at
+
 
 // get the view and projection based on current position, angles, and FOV
 glm::mat4 getProjectionViewMatrix(){
@@ -68,6 +71,7 @@ glm::mat4 getProjectionViewMatrix(){
   return ProjectionMatrix*ViewMatrix;
 }
 
+// same as above but only the view matrix (need for Phong lighting)
 glm::mat4 getViewMatrix(){
 // direction that the camera is looking at
   glm::vec3 direction = glm::vec3 (cos(verticalAngle) * sin(horizontalAngle),
@@ -94,8 +98,14 @@ glm::mat4 getViewMatrix(){
 
 // Callback for glfw resizing
 void resize(GLFWwindow* window, int w, int h){
-  width = w;
-  height = h;
+  //width = w;
+  //height = h;
+  //glViewport(0, 0, w, h);
+}
+
+void framebuffer_size_callback(GLFWwindow* window, int width, int height)
+{
+  //glViewport(0, 0, width, height);
 }
 
 // GLFW callback for keyboard input
@@ -166,7 +176,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	printf("persistence: %f\n", persistence);
   }
   if (key == GLFW_KEY_2 && action >= 1){
-	if(persistence < 1) persistence += 0.1;
+	if(persistence < 0.7) persistence += 0.1;
 	printf("persistence: %f\n", persistence);
   }
 
@@ -180,33 +190,37 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	printf("lacunarity: %f\n", lacunarity);
   }
 
-  // vertical scale with 5/6
-  if (key == GLFW_KEY_6 && action >= 1){
+  // vertical scale with ;/'
+  if (key == 39 && action >= 1){
 	if(verticalScale > 1.0) verticalScale -= 0.1;
 	printf("Vertical Scale: %f\n", verticalScale);
   }
-  if (key == GLFW_KEY_5 && action >= 1){
+  if (key == 59 && action >= 1){
 	verticalScale += 0.1;
 	printf("Vertical Scale: %f\n", verticalScale);
   }
 
-	// vertical shift with 7/8
-  if (key == GLFW_KEY_7 && action >= 1){
+	// vertical shift with -/+
+  if (key == 45 && action >= 1){
 	verticalShift -= 0.1;
 	printf("Vertical Shift: %f\n", verticalShift);
   }
-  if (key == GLFW_KEY_8 && action >= 1){
+  if (mods == GLFW_MOD_SHIFT && key == 61 && action >= 1){
 	verticalShift += 0.1;
 	printf("Vertical Shift: %f\n", verticalShift);
   }
 
+  // New seed for terrain generator with spacebar
+  if(key == GLFW_KEY_SPACE && action == GLFW_RELEASE){
+	seed = (float) (rand()%10000);
+  }
+  if(key == GLFW_KEY_Z && action == GLFW_RELEASE){
+	if(animateOffset == 0) animateOffset = 1;
+	else animateOffset = 0;
+  }
+
 }
 
-// Error code based on The Cherno's
-// Get rid of all the errors
-static void GLClearError(){
-  while(glGetError() != GL_NO_ERROR);
-}
 
 // Not a super usefull function, but better than nothing
 static bool GLLogCall(){
@@ -332,6 +346,7 @@ int CreateShaderProg(char* VertFile,char* FragFile)
 GLuint LoadTexture(const char* filename, GLuint texture){
   int x,y,n;
 
+  //OpenGL reads images from top to bottom
   stbi_set_flip_vertically_on_load(1);
   unsigned char* data = stbi_load(filename, &x, &y, &n, 4);
 
@@ -355,7 +370,7 @@ GLuint LoadTexture(const char* filename, GLuint texture){
   return texture;
 
 }
-// Define regions of the terrain
+// Define regions of the terrain, used to color the map
 struct Region{
   int id = -1; // unique id for each region
   float Height; // associated start height
@@ -378,7 +393,7 @@ int init(GLFWwindow *&window){ // Gives you the window
   glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 
   /* Create a windowed mode window and its OpenGL context */
-  window = glfwCreateWindow(width, height, "Hello World", NULL, NULL);
+  window = glfwCreateWindow(width, height, "Asher Farr CSCI4229 Final", NULL, NULL);
   if (!window)
 	{
 	  glfwTerminate();
@@ -389,6 +404,8 @@ int init(GLFWwindow *&window){ // Gives you the window
 
   // Make sure we rezise correctly
   glfwSetWindowSizeCallback(window, resize);
+  //Maybe this will fix the scaling?
+  glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
   // Make the keys right
   glfwSetKeyCallback(window, key_callback);
   /* Make the window's context current */
@@ -406,7 +423,7 @@ int init(GLFWwindow *&window){ // Gives you the window
   return 1;
 }
 
-
+// create a sphere
 Mesh sphere(float radius, int sectorCount, int stackCount){
 
 	float x, y, z, xy;                              // vertex position
@@ -516,12 +533,11 @@ int main(void)
 		float yPos = minPos + (yRatio*posRange);
 
 		grid[offset++] = xPos;
-
 		grid[offset++] = yPos;
 	  }
 	}
 
-	// Now choose indices
+	// Now choose indices to create triangle strips
 
 	int ind = 0;
 	int numStripsRequired = yLen - 1;
@@ -533,12 +549,13 @@ int main(void)
 	for(int y = 0; y < yLen-1; y++){
 	  for (int x = 0; x < xLen; x++) {
 		// One part of the strip
-		idxs[ind++] = ((y * yLen) + x);
-		idxs[ind++] = (((y + 1) * yLen) + x);
+		idxs[ind++] = ((y * yLen) + x); // Add one from current row
+		idxs[ind++] = (((y + 1) * yLen) + x); //Add one from the next row
 	   }
 	  idxs[ind++] = INT_MAX; // Restart the strip, we moving to the next row
 	}
 
+	// Initialize the Vertex Array, Vertex Buffer, and the Element Array Buffer
 	GLuint vao;
 	glGenVertexArrays(1, &vao);
 	glBindVertexArray(vao);
@@ -556,52 +573,52 @@ int main(void)
 	glEnableVertexAttribArray(0);
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float)*floatsPerVertex, 0);
 
-	//glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);  // Wireframe
-
 	glm::mat4 VP = getProjectionViewMatrix(); // current view and projection
 	// Model matrix : an identity matrix (model will be at the origin)
 	glm::mat4 Model = glm::mat4(1.0f);
 
-	glm::mat4 MVP = VP*Model;
+	glm::mat4 MVP = VP*Model; //Transform the grid into the appropriate coords
 	glm::mat4 MV = getViewMatrix() * Model;
-	int prog = CreateShaderProg((char *)"terrain.vert", (char *)"terrain.frag");
+	int prog = CreateShaderProg((char *)"terrain.vert", (char *)"terrain.frag"); // compile terrain shaders
 	glUseProgram(prog);
 
+	// Get all the uniform locations so I can pass them to the buffer
 	int location = glGetUniformLocation(prog, "MVP");
 	int mvLoc = glGetUniformLocation(prog, "MV");
 	int eyeDirLoc = glGetUniformLocation(prog, "eyeDirection");
 	int octLoc = glGetUniformLocation(prog, "u_oct");
-
 	int u_xDiffLoc = glGetUniformLocation(prog, "u_xDiff");
 	int u_yDiffLoc = glGetUniformLocation(prog, "u_yDiff");
 	int sLoc = glGetUniformLocation(prog, "scale");
 	int vScaleLoc = glGetUniformLocation(prog, "u_vScale");
 	int vShiftLoc = glGetUniformLocation(prog, "u_vShift");
-	//int colLoc = glGetUniformLocation(prog, "heightColors");
-
 	int persistenceLoc = glGetUniformLocation(prog, "u_persistence");
 	int lacunarityLoc = glGetUniformLocation(prog, "u_lacunarity");
-
-
 	int timeLoc = glGetUniformLocation(prog, "u_Time");
-
 	int lightLoc = glGetUniformLocation(prog, "lightPosition");
+	int offsetLoc = glGetUniformLocation(prog, "u_offset");
+	int seedLoc = glGetUniformLocation(prog, "u_seed");
 
 	// uniforms and shader for light sphere
 	int lightProg = CreateShaderProg((char *)"light.vert", (char *)"light.frag");
 	int location2 = glGetUniformLocation(lightProg, "MVP");
 	int lightLoc2 = glGetUniformLocation(lightProg, "lightPosition");
 
+	// Create the Regions of the terrain that will get passed as a uniform buffer object
 	int MAX_REGIONS = 10;
 	// needs to be in acending height order
 	Region terrainRegions[MAX_REGIONS]; // Array of regions to pass
 	int rIndex = -1; // number of defined regions
 
+
 	// Deep Ocean -inf -> -0.5
 	rIndex++;
 	terrainRegions[rIndex].id = rIndex;
+
 	terrainRegions[rIndex].Height = -10; //
 	terrainRegions[rIndex].Color = glm::vec4(0.047, 0.333, 0.729, 0.8); // Blue
+
+	// Water texture is procedural, so no textures to bind
 
 	// Ocean -0.5 -> 0
 	rIndex++;
@@ -618,8 +635,6 @@ int main(void)
 	glActiveTexture(GL_TEXTURE0); // set sand texture to slot 0
 	GLuint sandTexture = LoadTexture((char*) "./textures/sand_512.jpg", 0); // sand texture
 	glBindTexture(GL_TEXTURE_2D, sandTexture);
-
-
 
 	// Land 0.075 -> 0.5
 	rIndex++;
@@ -652,13 +667,14 @@ int main(void)
 	GLuint snowTexture = LoadTexture((char *) "./textures/snow_512.jpg", 0);
 	glBindTexture(GL_TEXTURE_2D, snowTexture);
 
-	//	glBindTexture(GL_TEXTURE_2D, 0);
 
+	// Pass textures on to the shader
 	glUniform1i(glGetUniformLocation(prog, "sandTexture"), 0); // set it in shader
 	glUniform1i(glGetUniformLocation(prog, "grassTexture"), 1); // set it in shader
 	glUniform1i(glGetUniformLocation(prog, "rockTexture"), 2); // set it in shader
 	glUniform1i(glGetUniformLocation(prog, "snowTexture"), 3); // set it in shader
-	GLLogCall();
+
+	// Uniform buffer object to pass regions (this took me a shocking amount of time to figure out)
 	unsigned int ubo; //uniform buffer object
 	glGenBuffers(1, &ubo);
 	glBindBuffer(GL_UNIFORM_BUFFER, ubo);
@@ -668,11 +684,11 @@ int main(void)
 
 	glUniformBlockBinding(prog, blockLocation, 1); // bind to index 1
 	glBindBufferBase(GL_UNIFORM_BUFFER, 1, ubo); //hook it up baby
-	GLLogCall();
-	glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(terrainRegions), terrainRegions);
+	GLLogCall(); // check for errors
+	glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(terrainRegions), terrainRegions); // Fill buffer with terrain region data (has to be sized correctly)
 
+	//Create the sun
 	Mesh lightSphere = sphere(1.0f, 36, 18);
-	//GLLogCall();
 	/*Loop until the user closes the window*/
 	float lightOrbitRadius = 15.0;
 	double lastTime = 0;
@@ -681,6 +697,8 @@ int main(void)
 	double lightAngle = PI;
 	while (!glfwWindowShouldClose(window))
 	{
+	  glfwGetWindowSize(window, &width, &height);
+	  // Time stuff for animating
 	  glUseProgram(prog);
 	  programTime = glfwGetTime(); //set time
 	  deltaTime = (programTime - lastTime);
@@ -688,13 +706,20 @@ int main(void)
 
 	  glUniform1d(timeLoc, programTime);
 
+	  // Sun takes longer time to go over the scene than under (just to keep it interesting)
 	  if(lightPosition.y < 0) lightAngle += deltaTime;
 	  else lightAngle += deltaTime/10;
 
-		lightPosition = glm::vec3(lightOrbitRadius*cos(lightAngle), lightOrbitRadius*sin(lightAngle), 6.0);
+	  lightPosition = glm::vec3(lightOrbitRadius*cos(lightAngle), lightOrbitRadius*sin(lightAngle), 6.0); // Orbit about the Z axis
 
 	  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	  //GLClearError();
+
+	  //fun stuff
+	  if(animateOffset == 1){
+		gridoffset.x += deltaTime/2;
+	  }
+	  glUniform1f(seedLoc, seed);
+	  glUniform2fv(offsetLoc, 1, &gridoffset[0]);
 
 	  VP = getProjectionViewMatrix(); // current view and projection
 	  MVP = VP*Model; // Combine with model matrix
@@ -711,14 +736,14 @@ int main(void)
 	  glUniform3fv(lightLoc, 1, &lightPosition[0]);
 	  glUniform1f(vScaleLoc, verticalScale);
 	  glUniform1f(vShiftLoc, verticalShift);
-
-
 	  glUniform3fv(eyeDirLoc, 1, &direction[0]);
+
+	  // Actually draw the terrain
 	  glBindVertexArray(vao);
 	  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
 	  glDrawElements(GL_TRIANGLE_STRIP, ind, GL_UNSIGNED_INT,0); // Draw the plane
 
-
+	  // Draw the sphere
 	  lightSphere.Draw(lightProg, GL_TRIANGLES);
 	  glUniformMatrix4fv(location2, 1, GL_FALSE, &MVP[0][0]);
 	  glUniform3fv(lightLoc2, 1, &lightPosition[0]);

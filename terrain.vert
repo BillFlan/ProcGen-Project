@@ -15,8 +15,12 @@ uniform float u_persistence; // persistence
 uniform float u_vScale; // Value for normalizing
 uniform float u_vShift; // Vertical shift
 
+
 uniform double u_Time; // current program time
 uniform vec3 lightPosition;
+
+uniform vec2 u_offset;
+uniform float u_seed;
 
 out vec3 normalInterp; // interpolated normals
 out vec3 col; // color
@@ -77,50 +81,50 @@ float random(float x, float maximum){
   return maximum*fract(sin(x)*100000.0);
 }
 
+// Make octaves of noise
 float generateOctaves(vec2 pos, int octaves, float persistence, float lacunarity, float seed, vec2 offset){
   float amplitude = 1;
   float frequency = 1;
   float noiseHeight = 0;
   float maximum = 0;
 
-  seed = random(seed, 10000.0);
+  seed = random(seed, 10000.0); // Sample from different places for each ocatve
 
-  float minValue = terrainRegions[0].Height - 0.1;
   for(int i = 0; i < octaves; i++){
-	pos = pos /scale * frequency + offset + vec2(seed);
+	pos = pos /scale * frequency + offset + vec2(seed); // Sample pos
 	float simplexValue = snoise(pos);
-	noiseHeight += simplexValue*amplitude;
-	noiseHeight = noiseHeight;
-	maximum += amplitude;
-	amplitude *= persistence;
-	frequency *= lacunarity;
-	seed = random(seed, 1000.0);
+	noiseHeight += simplexValue*amplitude; //Add noise
+	amplitude *= persistence; // Get smaller
+	frequency *= lacunarity; // Get bumpier
+	seed = random(seed, 1000.0); // Find a new random spot
 
   }
   return (noiseHeight)/u_vScale + u_vShift;
 }
+
 //calculate the normal of each vertex
 vec3 calcNormal(vec3 position){
-  vec3 xOff = vec3(position.x + u_xDiff/2.0, 0, position.z);
-  vec3 yOff = vec3(position.x, 0, position.z  + u_yDiff/2.0);
+  vec3 xOff = vec3(position.x + u_xDiff/2.0, 0, position.z); // Location shifed in x from pos
+  vec3 yOff = vec3(position.x, 0, position.z  + u_yDiff/2.0); // Location shifted in y (Z in real coord) from pos
+  int oct = min(3, u_oct); // Don't do more than 3 octaves, it's both ugly and costly
 
-  int oct = min(3,u_oct);
-  xOff.y = generateOctaves(xOff.xz, oct, u_persistence, u_lacunarity, 150,vec2(0,0) );
-  yOff.y = generateOctaves(yOff.xz, oct, u_persistence, u_lacunarity, 150,vec2(0,0) );
+  // Get height of offsets
+  xOff.y = generateOctaves(xOff.xz, oct, u_persistence, u_lacunarity, u_seed, u_offset);
+  yOff.y = generateOctaves(yOff.xz, oct, u_persistence, u_lacunarity, u_seed, u_offset);
 
+  // Slope in x and y direction
   vec3 xGrad = xOff - position;
   vec3 yGrad = yOff - position;
 
-  vec3 norm = normalize(cross(xGrad, yGrad));
+  vec3 norm = normalize(cross(xGrad, yGrad));   // Thanks linear algebra!
   return -norm;
 }
 
 
 void main(){
-  float height = generateOctaves(position.xy, u_oct, u_persistence, u_lacunarity, 150,vec2(0,0) );
-  gridPos = position.xzyw;
-  gridPos.y = height;
+  float height = generateOctaves(position.xy, u_oct, u_persistence, u_lacunarity, u_seed,u_offset); //For every vertex generate its height
+  gridPos = position.xzyw; //get input position
+  gridPos.y = height; // Make taller with noise
   gl_Position = MVP * vec4(gridPos.x, max(terrainRegions[2].Height, height), gridPos.z, 1.0); //Make water level with beach
-  Position = MV* gridPos;
-  normalInterp = calcNormal(gridPos.xyz);
+  Position = MV* gridPos; // No projection, used for lighting
 }

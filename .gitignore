@@ -4,4 +4,3 @@ glm/
 *.a
 stb_image.h
 /main
-/stb_image.cpp

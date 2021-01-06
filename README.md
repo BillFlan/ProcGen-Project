@@ -1,16 +1,16 @@
 # Procudural Terrain Generation Project
 ### Written by Asher Farr for CSCI 4229 Intro to Computer Graphics
 ## Controls:
-WASD to fly around
-Arrow keys to move camera
-Q/E to change the number of octaves of noise
-[/] to change the scale of noise
-1/2 to decrease/increase persistence of noise
-3/4 to decrease/increase lacunarity of noise
-;/' keys to decrease/increase the slope of noise
--/+ keys to decrease/increase the vertical shift of the noise
-k to toggle scrolling terrain
-Spacebar to seed a new world
+- WASD to fly around
+- Arrow keys to move camera
+- Q/E to change the number of octaves of noise
+- [/] to change the scale of noise
+- 1/2 to decrease/increase persistence of noise
+- 3/4 to decrease/increase lacunarity of noise
+- ;/' keys to decrease/increase the slope of noise
+- -/+ keys to decrease/increase the vertical shift of the noise
+- k to toggle scrolling terrain
+- Spacebar to seed a new world
 
 ## Instructions
 This project requires GLFW, GLM, and Stb_image. GLFW should link if you have it installed.
@@ -21,6 +21,8 @@ To compile run make
 
 In order to use the program, have fun playing with the parameters. I got lost making a bunch of combinations.
 You could also just fly around the  world and enjoy watching the days pass by.
+
+The current TerrainGen executable was compiled on a Mac running Mac 10.15.7 so if you have a mac you may be able to just run it.
 
 ## What I'm proud of:
 

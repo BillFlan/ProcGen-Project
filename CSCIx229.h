@@ -24,7 +24,7 @@
 extern "C" {
 #endif
 
-  //void Print(const char* format , ...);
+void Print(const char* format , ...);
 void Fatal(const char* format , ...);
   //unsigned int LoadTexBMP(const char* file);
   //void Project(double fov,double asp,double dim);

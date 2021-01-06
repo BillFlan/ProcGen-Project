@@ -4,10 +4,10 @@
 //in vec4 gl_Position;
 in vec4 gridPos;
 in vec4 Position;
-uniform float u_max;
-in vec3 col;
+
 
 // Structure to define regions of the terrain
+// Since this is passed as an std140 it has to have an evenly spaced layout
 struct Region{
   int id; // unique id for each region
   float Height; // associated maximum height
@@ -21,6 +21,7 @@ layout(std140) uniform colorBlock{
   Region terrainRegions[MAX_REGIONS];
 };
 
+// all those fun variables
 uniform int u_oct;
 uniform float u_lacunarity;
 uniform float u_persistence;
@@ -37,13 +38,17 @@ uniform vec3 eyeDirection;
 uniform float u_vScale; // Value for normalizing
 uniform float u_vShift; // Vertical shift
 
+uniform vec2 u_offset;
+uniform float u_seed;
+
 // textures
 uniform sampler2D sandTexture;
 uniform sampler2D grassTexture;
 uniform sampler2D rockTexture;
 uniform sampler2D snowTexture;
 
-in vec4 gl_FragCoord ;
+in vec4 gl_FragCoord;
+out vec4 FragColor;
 
 
 // Simplex 2D noise
@@ -81,25 +86,22 @@ float random(float x, float maximum){
   return maximum*fract(sin(x)*100000.0);
 }
 
-// Make octavs of noise
+// Make octaves of noise
 float generateOctaves(vec2 pos, int octaves, float persistence, float lacunarity, float seed, vec2 offset){
   float amplitude = 1;
   float frequency = 1;
   float noiseHeight = 0;
   float maximum = 0;
 
-  seed = random(seed, 10000.0);
+  seed = random(seed, 10000.0); // Sample from different places for each ocatve
 
-  float minValue = terrainRegions[0].Height - 0.1;
   for(int i = 0; i < octaves; i++){
-	pos = pos /scale * frequency + offset + vec2(seed);
+	pos = pos /scale * frequency + offset + vec2(seed); // Sample pos
 	float simplexValue = snoise(pos);
-	noiseHeight += simplexValue*amplitude;
-	noiseHeight = noiseHeight;
-	maximum += amplitude;
-	amplitude *= persistence;
-	frequency *= lacunarity;
-	seed = random(seed, 1000.0);
+	noiseHeight += simplexValue*amplitude; //Add noise
+	amplitude *= persistence; // Get smaller
+	frequency *= lacunarity; // Get bumpier
+	seed = random(seed, 1000.0); // Find a new random spot
 
   }
   return (noiseHeight)/u_vScale + u_vShift;
@@ -107,39 +109,41 @@ float generateOctaves(vec2 pos, int octaves, float persistence, float lacunarity
 
 //calculate the normal of each vertex
 vec3 calcNormal(vec3 position){
-  vec3 xOff = vec3(position.x + u_xDiff/2.0, 0, position.z);
-  vec3 yOff = vec3(position.x, 0, position.z  + u_yDiff/2.0);
-  int oct = min(3, u_oct);
+  vec3 xOff = vec3(position.x + u_xDiff/2.0, 0, position.z); // Location shifed in x from pos
+  vec3 yOff = vec3(position.x, 0, position.z  + u_yDiff/2.0); // Location shifted in y (Z in real coord) from pos
+  int oct = min(3, u_oct); // Don't do more than 3 octaves, it's both ugly and costly
 
-  xOff.y = generateOctaves(xOff.xz, oct, u_persistence, u_lacunarity, 150.0, vec2(0,0));
-  yOff.y = generateOctaves(yOff.xz, oct, u_persistence, u_lacunarity, 150.0, vec2(0,0));
+  // Get height of offsets
+  xOff.y = generateOctaves(xOff.xz, oct, u_persistence, u_lacunarity, u_seed, u_offset);
+  yOff.y = generateOctaves(yOff.xz, oct, u_persistence, u_lacunarity, u_seed, u_offset);
 
+  // Slope in x and y direction
   vec3 xGrad = xOff - position;
   vec3 yGrad = yOff - position;
 
-  vec3 norm = normalize(cross(xGrad, yGrad));
+  vec3 norm = normalize(cross(xGrad, yGrad));   // Thanks linear algebra!
   return -norm;
 }
 
-//calculate the normal of each vertex
+// Use turbulent noise to texture the water
 vec3 calcWaterNormal(vec3 position){
-  vec3 xOff = vec3(position.x + 0.025, 0, position.z);
+  vec3 xOff = vec3(position.x + 0.025, 0, position.z); // Get a location close to pos
   vec3 yOff = vec3(position.x, 0, position.z  + 0.025);
-  // int oct = min(3, u_oct);
 
-  // xOff.y = generateOctaves(xOff.xz, oct, u_persistence, u_lacunarity, 150.0, vec2(0,0));
-  // yOff.y = generateOctaves(yOff.xz, oct, u_persistence, u_lacunarity, 150.0, vec2(0,0));
+  // Take absolute value of simplex noise to get a watery look
   xOff.y = abs(snoise(xOff.xz));
   yOff.y = abs(snoise(yOff.xz));
+
+  // Get direction
   vec3 xGrad = xOff - position;
   vec3 yGrad = yOff - position;
 
-  vec3 norm = normalize(cross(xGrad, yGrad));
+  vec3 norm = normalize(cross(xGrad, yGrad)); // Cross product, my best friend
   return -norm;
 }
 
-
-vec3 lightPos = lightPosition;
+// Light info because I didn't want to pass it all in
+vec3 lightPos = lightPosition; // except for the position, I did pass that in
 vec3 lightColor = vec3(0.945, 0.870, 0.352);
 float lightBrightness = 2.0;
 float lightPower = 1.0;
@@ -147,17 +151,13 @@ const vec3 specColor = vec3(1.0, 1.0, 1.0);
 float shininess = 0.3;
 float Ambient = 0.5;
 
-//vec3 lightDirection = vec3(0,-5,0);
-out vec4 FragColor;
-in vec3 normalInterp;
-
-Region currentRegion;
 
 // light attenuation factors
 float constAttenuation = 0.001;
 float linearAttenuation = 1;
 float quadAttenuation = 0;
 
+// Get texture based on the region id
 vec4 getTexture(int id, vec2 Pos){
   vec4 color;
   switch (id){
@@ -180,7 +180,9 @@ vec4 getTexture(int id, vec2 Pos){
   return color;
 }
 
+// Get region based on the height
 Region getRegion(float height, int start){
+  // If you are >= than the region height, you could be in that region
   Region reg = terrainRegions[0];
   for(int i = 0; i < MAX_REGIONS; i++){
 	if(terrainRegions[i].id == -1) break; // don't want undefined
@@ -190,25 +192,30 @@ Region getRegion(float height, int start){
   }
   return reg;
 }
+
+
 void main(){
-  //float height = (gridPos.y + 1.0)/2.0;
+  Region currentRegion; // current region for texturing
+
   float height = gridPos.y;
   vec4 color; //color of a region
 
-  float variation = 0.025;
+  float variation = 0.025; //How much to wiggle the lines
   height = height + random(random(height, variation+gridPos.z),variation); //Add random variation to edges
   currentRegion = getRegion(height, 0);
   color = getTexture(currentRegion.id, gridPos.xz); // get texture for a given id
 
-
+  // Calculate a per pixel normals using our noise function
   vec3 normal = calcNormal(gridPos.xyz);
 
+  // Time to do some Phong Shading!!!
+  // Make the light brighter
   lightColor *= lightBrightness;
   vec3 lightDir = lightPos - vec3(Position);
   float lightDistance = length(lightDir);
-  lightDir = lightDir/lightDistance;
+  lightDir = lightDir/lightDistance; // normalize
 
-  float attenuation = 1.0/(
+  float attenuation = 1.0/( //Quad makes it look hazier
 					constAttenuation +
 					linearAttenuation * lightDistance +
 					quadAttenuation * lightDistance * lightDistance
@@ -232,11 +239,14 @@ void main(){
   FragColor = vec4(rgb, color.a);
 
   // Do special calculations for waves
+  // This is just phong again but for the water
   if(currentRegion.id <= 1){
+	// Get the normal for water
+	// We animate the offset through time so it looks like the water has waves
 	vec3 normalWater = calcWaterNormal(vec3(gridPos.x, abs(snoise(5*gridPos.xz + float(u_Time)/5)), gridPos.z));
-	shininess = 10;
+	shininess = 10; // Water is shiny
 	lightPower = 5;
-	lightColor /= lightBrightness;
+	lightColor /= lightBrightness; // It got too bright
 	//linearAttenuation = 0;
 	//quadAttenuation = 1;
 
@@ -252,6 +262,7 @@ void main(){
 	vec3 waterreflectedLight = lightColor * waterspecular * attenuation;
 	vec3 waterrgb = min(color.rgb * waterscatteredLight + waterreflectedLight, vec3(1.0));
 
+	// Add the waves on top, so you see both the light on the ground below and the waves
 	FragColor += vec4(waterrgb, 0.9);
   }
 }
